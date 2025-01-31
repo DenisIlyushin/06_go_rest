@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bytes"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -40,78 +39,58 @@ var tasks = map[string]Task{
 	},
 }
 
-func sendJsonResponse(w http.ResponseWriter, status int, json []byte) {
+// sendJSONResponse Формирует ответ, с указанным статусом и JSON в теле ответа
+func sendJSONResponse(w http.ResponseWriter, status int, data interface{}) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
-	_, err := w.Write(json)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
+	if err := json.NewEncoder(w).Encode(data); err != nil {
+		http.Error(w, "Ошибка кодирования JSON", http.StatusInternalServerError)
 	}
 }
 
+// createTask Создает новое задание
 func createTask(w http.ResponseWriter, r *http.Request) {
 	var task Task
-	var buf bytes.Buffer
-
-	_, err := buf.ReadFrom(r.Body)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+	if err := json.NewDecoder(r.Body).Decode(&task); err != nil {
+		http.Error(w, "Ошибка декодирования JSON", http.StatusBadRequest)
 		return
 	}
-	err = json.Unmarshal(buf.Bytes(), &task)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
-		return
-	}
-	_, ok := tasks[task.ID]
-	if ok {
-		http.Error(
-			w, fmt.Sprintf("Задача с id %v уже существует", task.ID), http.StatusConflict)
+	if _, exists := tasks[task.ID]; exists {
+		http.Error(w, fmt.Sprintf("Задача с id %v уже существует", task.ID), http.StatusConflict)
 		return
 	}
 	tasks[task.ID] = task
-	sendJsonResponse(w, http.StatusOK, buf.Bytes())
+	sendJSONResponse(w, http.StatusCreated, task)
 }
 
+// getAllTasks Возвращает список заданий
 func getAllTasks(w http.ResponseWriter, r *http.Request) {
-	tasks_json, err := json.Marshal(tasks)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-	sendJsonResponse(w, http.StatusOK, tasks_json)
+	sendJSONResponse(w, http.StatusOK, tasks)
 }
 
+// getTaskByID Возвращает задание с указанным ID
 func getTaskById(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
-	task, ok := tasks[id]
-	if !ok {
-		http.Error(w, fmt.Sprintf("Задачи с id %v не существует", task.ID), http.StatusNotFound)
+	task, exists := tasks[id]
+	if !exists {
+		http.Error(w, fmt.Sprintf("Задачи с id %v не существует", id), http.StatusNotFound)
 		return
 	}
-	task_json, err := json.Marshal(task)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-	sendJsonResponse(w, http.StatusOK, task_json)
+	sendJSONResponse(w, http.StatusOK, task)
 }
 
+// getTaskByID Удаляет задание с указанным ID
 func deleteTask(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
-	task, ok := tasks[id]
-	if !ok {
-		http.Error(w, fmt.Sprintf("Задачи с id %v не существует", task.ID), http.StatusNotFound)
+	task, exists := tasks[id]
+	if exists {
+		delete(tasks, id)
+	}
+	if !exists {
+		http.Error(w, fmt.Sprintf("Задачи с id %v не существует", id), http.StatusNotFound)
 		return
 	}
-	task_json, err := json.Marshal(task)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-	delete(tasks, id)
-	sendJsonResponse(w, http.StatusOK, task_json)
+	sendJSONResponse(w, http.StatusOK, task)
 }
 
 func main() {
