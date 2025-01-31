@@ -1,8 +1,9 @@
 package main
 
 import (
+	"bytes"
+	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
 
 	"github.com/go-chi/chi/v5"
@@ -39,35 +40,85 @@ var tasks = map[string]Task{
 	},
 }
 
-func createTask(w http.ResponseWriter, r *http.Request) {
+func sendJsonResponse(w http.ResponseWriter, status int, json []byte) {
 	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
-	io.WriteString(w, "Создал таску, братан")
+	w.WriteHeader(status)
+	_, err := w.Write(json)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+}
+
+func createTask(w http.ResponseWriter, r *http.Request) {
+	var task Task
+	var buf bytes.Buffer
+
+	_, err := buf.ReadFrom(r.Body)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	err = json.Unmarshal(buf.Bytes(), &task)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	_, ok := tasks[task.ID]
+	if ok {
+		http.Error(
+			w, fmt.Sprintf("Задача с id %v уже существует", task.ID), http.StatusConflict)
+		return
+	}
+	tasks[task.ID] = task
+	sendJsonResponse(w, http.StatusOK, buf.Bytes())
 }
 
 func getAllTasks(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusCreated)
-	io.WriteString(w, "Вот тебе все таски, чувак")
+	tasks_json, err := json.Marshal(tasks)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	sendJsonResponse(w, http.StatusOK, tasks_json)
 }
 
 func getTaskById(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
-	io.WriteString(w, fmt.Sprintf("Нашел таску %v", chi.URLParam(r, "id")))
+	id := chi.URLParam(r, "id")
+	task, ok := tasks[id]
+	if !ok {
+		http.Error(w, fmt.Sprintf("Задачи с id %v не существует", task.ID), http.StatusNotFound)
+		return
+	}
+	task_json, err := json.Marshal(task)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	sendJsonResponse(w, http.StatusOK, task_json)
 }
 
 func deleteTask(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
-	io.WriteString(w, fmt.Sprintf("Удалил таску %v", chi.URLParam(r, "id")))
+	id := chi.URLParam(r, "id")
+	task, ok := tasks[id]
+	if !ok {
+		http.Error(w, fmt.Sprintf("Задачи с id %v не существует", task.ID), http.StatusNotFound)
+		return
+	}
+	task_json, err := json.Marshal(task)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	delete(tasks, id)
+	sendJsonResponse(w, http.StatusOK, task_json)
 }
 
 func main() {
 	r := chi.NewRouter()
 
 	r.Post("/tasks", createTask)
-	r.Get("/tasks/", getAllTasks)
+	r.Get("/tasks", getAllTasks)
 	r.Get("/tasks/{id}", getTaskById)
 	r.Delete("/tasks/{id}", deleteTask)
 
